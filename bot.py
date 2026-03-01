@@ -1,71 +1,115 @@
+import os
+import requests
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from io import StringIO
+from datetime import datetime, timedelta, time
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-import os
-import pandas as pd
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import tempfile
-import datetime
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-# Link CSV của Google Sheet
-SHEET_CSV = "https://docs.google.com/spreadsheets/d/1GjDK8knbs-JuPNsP125vqEXmoIBb9Pu_4kFAOATCEuA/export?format=csv"
+SHEET_CSV = "https://docs.google.com/spreadsheets/d/1GjDK8knbs-JuPNsP125vqEXmoIBb9Pu_4kFAOATCEuA/export?format=csv&gid=0"
 
 
-# ================= GET CHAT ID =================
-async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Chat ID của bạn là: {update.effective_chat.id}")
+# ================= LOAD DATA =================
+
+def load_sheet():
+    r = requests.get(SHEET_CSV)
+    df = pd.read_csv(StringIO(r.text))
+    return df
 
 
-# ================= TIMELINE =================
-async def timeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ================= DRAW TIMELINE =================
 
-    chat_id = update.effective_chat.id
+def draw_timeline(df, target_date, filename):
 
-    df = pd.read_csv(SHEET_CSV)
+    df["start_time"] = pd.to_datetime(df["start_time"], errors="coerce")
+    df["end_time"] = pd.to_datetime(df["end_time"], errors="coerce")
 
-    # Đặt lại tên cột đúng theo sheet của bạn
-    df.columns = ["Room", "ChatID", "Start", "End", "Duration", "Status", "LastSeen", "Telegram"]
+    # Lọc đúng ngày
+    start_day = datetime.combine(target_date, time.min)
+    end_day = datetime.combine(target_date, time.max)
 
-    df["Start"] = pd.to_datetime(df["Start"], errors="coerce")
-    df["End"] = pd.to_datetime(df["End"], errors="coerce")
-
-    # Lọc theo chatid
-    df = df[df["ChatID"] == chat_id]
-    df = df.dropna(subset=["End"])
+    df = df[(df["start_time"] <= end_day) & (df["end_time"] >= start_day)]
 
     if df.empty:
-        await update.message.reply_text("Không có dữ liệu.")
-        return
+        return False
 
-    fig, ax = plt.subplots(figsize=(10, 5))
+    rooms = df["room"].unique()
 
-    for _, row in df.iterrows():
-        start_sec = row["Start"].timestamp()
-        end_sec = row["End"].timestamp()
+    fig, ax = plt.subplots(figsize=(12, 6))
 
-        ax.barh(
-            row["Room"],
-            end_sec - start_sec,
-            left=start_sec
-        )
+    for i, room in enumerate(rooms):
+        room_data = df[df["room"] == room]
 
-    ax.set_title("Timeline hoạt động")
-    ax.invert_yaxis()
+        for _, row in room_data.iterrows():
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-    plt.savefig(tmp.name)
+            start = max(row["start_time"], start_day)
+            end = min(row["end_time"], end_day)
+
+            start_hour = (
+                start.hour
+                + start.minute / 60
+                + start.second / 3600
+            )
+
+            duration_hours = (end - start).total_seconds() / 3600
+
+            ax.barh(
+                y=i,
+                width=duration_hours,
+                left=start_hour,
+                height=0.4,
+            )
+
+    ax.set_yticks(range(len(rooms)))
+    ax.set_yticklabels(rooms)
+    ax.set_xlim(0, 24)
+    ax.set_xlabel("Giờ trong ngày")
+    ax.set_title(f"Timeline {target_date.strftime('%d/%m/%Y')}")
+
+    plt.tight_layout()
+    plt.savefig(filename)
     plt.close()
 
-    await update.message.reply_photo(photo=open(tmp.name, "rb"))
+    return True
 
 
-# ================= MAIN =================
+# ================= COMMANDS =================
+
+async def timeline_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    df = load_sheet()
+    today = datetime.now().date()
+
+    ok = draw_timeline(df, today, "today.png")
+
+    if not ok:
+        await update.message.reply_text("Hôm nay không có dữ liệu.")
+        return
+
+    await update.message.reply_photo(photo=open("today.png", "rb"))
+
+
+async def timeline_yesterday(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    df = load_sheet()
+    yesterday = (datetime.now() - timedelta(days=1)).date()
+
+    ok = draw_timeline(df, yesterday, "yesterday.png")
+
+    if not ok:
+        await update.message.reply_text("Hôm qua không có dữ liệu.")
+        return
+
+    await update.message.reply_photo(photo=open("yesterday.png", "rb"))
+
+
+# ================= RUN BOT =================
+
 app = ApplicationBuilder().token(TOKEN).build()
 
-app.add_handler(CommandHandler("getid", get_id))
-app.add_handler(CommandHandler("timeline", timeline))
+app.add_handler(CommandHandler("timeline_today", timeline_today))
+app.add_handler(CommandHandler("timeline_yesterday", timeline_yesterday))
 
 app.run_polling()
