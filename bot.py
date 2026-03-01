@@ -40,7 +40,7 @@ async def timeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
     df = df[df["ChatID"] == str(chat_id)]
 
     # lọc chỉ hôm nay
-    today = datetime.date.today()
+    today = (datetime.datetime.utcnow() + datetime.timedelta(hours=7)).date()
     df = df[df["Start"].dt.date == today]
 
     # bỏ dòng chưa có end
