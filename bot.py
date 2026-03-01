@@ -24,10 +24,10 @@ async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def timeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.effective_chat.id
-
+    print("Bot chat_id:", chat_id)
     # đọc dữ liệu
     df = pd.read_csv(SHEET_CSV)
-
+    print("Unique ChatID trong sheet:", df["ChatID"].unique())
     # đặt lại tên cột đúng theo sheet của bạn
     df.columns = ["Room", "ChatID", "Start", "End", "Duration", "Status", "LastSeen"]
 
