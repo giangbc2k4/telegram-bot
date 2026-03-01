@@ -1,68 +1,59 @@
 async def timeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
-        await update.message.reply_text("=== DEBUG TIMELINE ===")
+        await update.message.reply_text("1️⃣ Bắt đầu timeline")
 
         chat_id = update.effective_chat.id
-        chat_id_str = str(chat_id).strip()
+        await update.message.reply_text(f"Chat ID: {chat_id}")
 
-        await update.message.reply_text(f"Chat ID bot: {chat_id_str}")
-
-        # Đọc CSV
+        # đọc CSV
         df = pd.read_csv(SHEET_CSV)
-        await update.message.reply_text(f"Tổng dòng trong sheet: {len(df)}")
-        await update.message.reply_text(f"Cột: {list(df.columns)}")
+        await update.message.reply_text("2️⃣ Đọc CSV thành công")
 
-        # Rename đúng theo header bạn đang có
-        df = df.rename(columns={
-            "room": "Room",
-            "ChatID": "ChatID",
-            "start_time": "Start",
-            "end_time": "End",
-            "duration": "Duration",
-            "status": "Status",
-            "last_seen": "LastSeen"
-        })
+        await update.message.reply_text(f"Số dòng: {len(df)}")
 
-        # Xử lý ChatID
-        df["ChatID"] = (
-            df["ChatID"]
-            .astype(str)
-            .str.replace(".0", "", regex=False)
-            .str.strip()
-        )
+        # kiểm tra cột
+        await update.message.reply_text(f"Cột trong sheet: {list(df.columns)}")
 
-        await update.message.reply_text(
-            f"ChatID trong sheet: {df['ChatID'].unique()}"
-        )
-
-        # Parse datetime
+        # ép kiểu
+        df["ChatID"] = df["ChatID"].astype(str).str.strip()
         df["Start"] = pd.to_datetime(df["Start"], dayfirst=True, errors="coerce")
         df["End"] = pd.to_datetime(df["End"], dayfirst=True, errors="coerce")
 
-        await update.message.reply_text(
-            f"Ngày có trong sheet: {df['Start'].dt.date.unique()}"
-        )
+        await update.message.reply_text("3️⃣ Parse datetime xong")
 
-        # Lọc theo ChatID
-        df_chat = df[df["ChatID"] == chat_id_str]
-        await update.message.reply_text(
-            f"Sau lọc chatid: {len(df_chat)} dòng"
-        )
+        # lọc chatid
+        df = df[df["ChatID"] == str(chat_id)]
+        await update.message.reply_text(f"Sau lọc chatid còn: {len(df)} dòng")
 
-        # Lọc hôm nay (UTC+7)
+        # lọc hôm nay (UTC+7)
         today = (datetime.datetime.utcnow() + datetime.timedelta(hours=7)).date()
-        await update.message.reply_text(f"Hôm nay (UTC+7): {today}")
+        df = df[df["Start"].dt.date == today]
+        await update.message.reply_text(f"Sau lọc ngày còn: {len(df)} dòng")
 
-        df_today = df_chat[df_chat["Start"].dt.date == today]
-        await update.message.reply_text(
-            f"Sau lọc ngày hôm nay: {len(df_today)} dòng"
-        )
+        df = df.dropna(subset=["End"])
 
-        if df_today.empty:
-            await update.message.reply_text("❌ Không có dữ liệu khớp.")
-        else:
-            await update.message.reply_text("✅ Có dữ liệu rồi.")
+        if df.empty:
+            await update.message.reply_text("❌ Không có dữ liệu hôm nay.")
+            return
+
+        await update.message.reply_text("4️⃣ Chuẩn bị vẽ biểu đồ")
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+
+        for _, row in df.iterrows():
+            start_sec = row["Start"].timestamp()
+            end_sec = row["End"].timestamp()
+            ax.barh(row["Room"], end_sec - start_sec, left=start_sec)
+
+        ax.set_title("Timeline hôm nay")
+        ax.invert_yaxis()
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        plt.savefig(tmp.name)
+        plt.close()
+
+        await update.message.reply_photo(photo=open(tmp.name, "rb"))
 
     except Exception as e:
         await update.message.reply_text(f"🚨 Lỗi: {str(e)}")
