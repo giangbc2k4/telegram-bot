@@ -2,6 +2,11 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import os
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import tempfile
 import datetime
 
 TOKEN = os.getenv("BOT_TOKEN")
@@ -16,89 +21,63 @@ async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ================= DEBUG TIMELINE =================
+# ================= TIMELINE HÔM NAY =================
 async def timeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
-        await update.message.reply_text("1️⃣ Bắt đầu timeline")
-
         chat_id = update.effective_chat.id
-        await update.message.reply_text(f"Chat ID: {chat_id}")
 
-        # đọc CSV
+        # đọc dữ liệu
         df = pd.read_csv(SHEET_CSV)
-        await update.message.reply_text("2️⃣ Đọc CSV thành công")
-        await update.message.reply_text(f"Số dòng: {len(df)}")
-        await update.message.reply_text(f"Cột trong sheet: {list(df.columns)}")
 
-        # ===== DEBUG: In toàn bộ ChatID trong sheet =====
-        await update.message.reply_text(
-            f"Tất cả ChatID trong sheet:\n{df['ChatID'].unique()}"
-        )
+        # chuẩn hóa tên cột (đề phòng viết thường)
+        df.columns = df.columns.str.strip()
 
         # ép kiểu
-        df["ChatID"] = (
-            df["ChatID"]
-            .astype(str)
-            .str.replace(".0", "", regex=False)
-            .str.strip()
-        )
-
+        df["ChatID"] = df["ChatID"].astype(str).str.strip()
         df["Start"] = pd.to_datetime(df["Start"], dayfirst=True, errors="coerce")
         df["End"] = pd.to_datetime(df["End"], dayfirst=True, errors="coerce")
 
-        await update.message.reply_text("3️⃣ Parse datetime xong")
+        # lọc đúng chatid
+        df = df[df["ChatID"] == str(chat_id)]
 
-        # ===== DEBUG: In 5 dòng đầu =====
-        preview = df.head(5).to_string()
-        await update.message.reply_text(f"5 dòng đầu:\n{preview}")
-
-        # lọc chatid
-        df_chat = df[df["ChatID"] == str(chat_id)]
-        await update.message.reply_text(f"Sau lọc chatid còn: {len(df_chat)} dòng")
-
-        if df_chat.empty:
-            await update.message.reply_text("🚨 Không match được ChatID.")
-            return
-
-        # ===== DEBUG: xem ngày trong dữ liệu của chat này =====
-        await update.message.reply_text(
-            f"Ngày có trong dữ liệu chat này:\n{df_chat['Start'].dt.date.unique()}"
-        )
-
-        # lọc hôm nay (UTC+7)
+        # lấy hôm nay theo UTC+7
         today = (datetime.datetime.utcnow() + datetime.timedelta(hours=7)).date()
-        await update.message.reply_text(f"Hôm nay (UTC+7): {today}")
+        df = df[df["Start"].dt.date == today]
 
-        df_today = df_chat[df_chat["Start"].dt.date == today]
-        await update.message.reply_text(f"Sau lọc ngày còn: {len(df_today)} dòng")
+        # bỏ dòng chưa có End
+        df = df.dropna(subset=["End"])
 
-        if df_today.empty:
-            await update.message.reply_text("❌ Có dữ liệu nhưng không phải hôm nay.")
+        if df.empty:
+            await update.message.reply_text("❌ Không có dữ liệu hôm nay.")
             return
 
-        df_today = df_today.dropna(subset=["End"])
-
-        if df_today.empty:
-            await update.message.reply_text("❌ Có Start nhưng chưa có End.")
-            return
-
-        await update.message.reply_text("4️⃣ Dữ liệu hợp lệ, chuẩn bị vẽ")
-
-        # ===== VẼ =====
-        import matplotlib.pyplot as plt
-        import tempfile
-
+        # ================= VẼ =================
         fig, ax = plt.subplots(figsize=(10, 5))
 
-        for _, row in df_today.iterrows():
-            start_sec = row["Start"].timestamp()
-            end_sec = row["End"].timestamp()
-            ax.barh(row["Room"], end_sec - start_sec, left=start_sec)
+        for _, row in df.iterrows():
+            ax.barh(
+                row["room"],
+                row["End"] - row["Start"],
+                left=row["Start"]
+            )
+
+        # format trục giờ
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax.xaxis.set_major_locator(mdates.HourLocator())
+
+        # cố định từ 00:00 -> 23:59
+        start_day = datetime.datetime.combine(today, datetime.time(0, 0, 0))
+        end_day = datetime.datetime.combine(today, datetime.time(23, 59, 59))
+
+        ax.set_xlim(start_day, end_day)
 
         ax.set_title("Timeline hôm nay")
         ax.invert_yaxis()
+        plt.xticks(rotation=45)
+        plt.tight_layout()
 
+        # lưu file tạm
         tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
         plt.savefig(tmp.name)
         plt.close()
@@ -107,6 +86,8 @@ async def timeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await update.message.reply_text(f"🚨 Lỗi: {str(e)}")
+
+
 # ================= MAIN =================
 app = ApplicationBuilder().token(TOKEN).build()
 
