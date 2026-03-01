@@ -27,32 +27,59 @@ async def timeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("1️⃣ Bắt đầu timeline")
 
         chat_id = update.effective_chat.id
-        await update.message.reply_text(f"Chat ID: {chat_id}")
+        chat_id_str = str(chat_id).strip()
 
-        # đọc CSV
+        await update.message.reply_text(f"Chat ID bot: {chat_id_str}")
+
+        # ====== ĐỌC CSV ======
         df = pd.read_csv(SHEET_CSV)
         await update.message.reply_text("2️⃣ Đọc CSV thành công")
-
         await update.message.reply_text(f"Số dòng: {len(df)}")
-
-        # kiểm tra cột
         await update.message.reply_text(f"Cột trong sheet: {list(df.columns)}")
 
-        # ép kiểu
-        df["ChatID"] = df["ChatID"].astype(str).str.strip()
+        # ====== RENAME CỘT ======
+        df = df.rename(columns={
+            "room": "Room",
+            "ChatID": "ChatID",
+            "start_time": "Start",
+            "end_time": "End",
+            "duration": "Duration",
+            "status": "Status",
+            "last_seen": "LastSeen"
+        })
+
+        # ====== XỬ LÝ CHATID ======
+        df["ChatID"] = (
+            df["ChatID"]
+            .astype(str)
+            .str.replace(".0", "", regex=False)
+            .str.strip()
+        )
+
+        await update.message.reply_text(
+            f"ChatID trong sheet: {df['ChatID'].unique()}"
+        )
+
+        # ====== PARSE DATETIME ======
         df["Start"] = pd.to_datetime(df["Start"], dayfirst=True, errors="coerce")
         df["End"] = pd.to_datetime(df["End"], dayfirst=True, errors="coerce")
 
         await update.message.reply_text("3️⃣ Parse datetime xong")
 
-        # lọc chatid
-        df = df[df["ChatID"] == str(chat_id)]
-        await update.message.reply_text(f"Sau lọc chatid còn: {len(df)} dòng")
+        # ====== LỌC CHATID ======
+        df = df[df["ChatID"] == chat_id_str]
+        await update.message.reply_text(
+            f"Sau lọc chatid còn: {len(df)} dòng"
+        )
 
-        # lọc hôm nay (UTC+7)
+        # ====== LỌC NGÀY HÔM NAY (UTC+7) ======
         today = (datetime.datetime.utcnow() + datetime.timedelta(hours=7)).date()
+        await update.message.reply_text(f"Ngày hôm nay: {today}")
+
         df = df[df["Start"].dt.date == today]
-        await update.message.reply_text(f"Sau lọc ngày còn: {len(df)} dòng")
+        await update.message.reply_text(
+            f"Sau lọc ngày còn: {len(df)} dòng"
+        )
 
         df = df.dropna(subset=["End"])
 
@@ -60,16 +87,21 @@ async def timeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Không có dữ liệu hôm nay.")
             return
 
-        await update.message.reply_text("4️⃣ Chuẩn bị vẽ biểu đồ")
+        # ====== VẼ BIỂU ĐỒ ======
+        await update.message.reply_text("4️⃣ Bắt đầu vẽ biểu đồ")
 
         fig, ax = plt.subplots(figsize=(10, 5))
 
         for _, row in df.iterrows():
             start_sec = row["Start"].timestamp()
             end_sec = row["End"].timestamp()
-            ax.barh(row["Room"], end_sec - start_sec, left=start_sec)
+            ax.barh(
+                row["Room"],
+                end_sec - start_sec,
+                left=start_sec
+            )
 
-        ax.set_title("Timeline hôm nay")
+        ax.set_title(f"Timeline hôm nay ({today.strftime('%d/%m/%Y')})")
         ax.invert_yaxis()
 
         tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
@@ -80,6 +112,8 @@ async def timeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await update.message.reply_text(f"🚨 Lỗi: {str(e)}")
+
+
 # ================= MAIN =================
 app = ApplicationBuilder().token(TOKEN).build()
 
