@@ -1,3 +1,26 @@
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+import os
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import tempfile
+import datetime
+
+TOKEN = os.getenv("BOT_TOKEN")
+
+SHEET_CSV = "https://docs.google.com/spreadsheets/d/1GjDK8knbs-JuPNsP125vqEXmoIBb9Pu_4kFAOATCEuA/export?format=csv&gid=0"
+
+
+# ================= GET CHAT ID =================
+async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"Chat ID của bạn là: {update.effective_chat.id}"
+    )
+
+
+# ================= TIMELINE TODAY =================
 async def timeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
@@ -57,3 +80,11 @@ async def timeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await update.message.reply_text(f"🚨 Lỗi: {str(e)}")
+
+# ================= MAIN =================
+app = ApplicationBuilder().token(TOKEN).build()
+
+app.add_handler(CommandHandler("getid", get_id))
+app.add_handler(CommandHandler("timeline", timeline))
+
+app.run_polling()
