@@ -1,67 +1,75 @@
-import os
-import requests
-import pandas as pd
-import matplotlib.pyplot as plt
-
-from io import StringIO
-from datetime import datetime, timedelta, time
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+import os
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import tempfile
+from datetime import datetime, timedelta, time
 
 TOKEN = os.getenv("BOT_TOKEN")
 
 SHEET_CSV = "https://docs.google.com/spreadsheets/d/1GjDK8knbs-JuPNsP125vqEXmoIBb9Pu_4kFAOATCEuA/export?format=csv&gid=0"
 
 
-# ================= LOAD DATA =================
+# ================= GET CHAT ID =================
+async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"Chat ID của bạn là: {update.effective_chat.id}")
 
-def load_sheet():
-    r = requests.get(SHEET_CSV)
-    df = pd.read_csv(StringIO(r.text))
+
+# ================= LOAD DATA =================
+def load_data():
+    df = pd.read_csv(SHEET_CSV)
+    df.columns = ["Room", "ChatID", "Start", "End", "Duration", "Status", "LastSeen", "Telegram"]
+
+    df["Start"] = pd.to_datetime(df["Start"], errors="coerce")
+    df["End"] = pd.to_datetime(df["End"], errors="coerce")
+
     return df
 
 
 # ================= DRAW TIMELINE =================
+def draw_timeline(df, chat_id, target_date):
 
-def draw_timeline(df, target_date, filename):
-
-    df["start_time"] = pd.to_datetime(df["start_time"], errors="coerce")
-    df["end_time"] = pd.to_datetime(df["end_time"], errors="coerce")
-
-    # Lọc đúng ngày
     start_day = datetime.combine(target_date, time.min)
     end_day = datetime.combine(target_date, time.max)
 
-    df = df[(df["start_time"] <= end_day) & (df["end_time"] >= start_day)]
+    # Lọc đúng chatid
+    df = df[df["ChatID"] == chat_id]
+
+    # Lọc đúng ngày (cắt đoạn giao nhau)
+    df = df[(df["Start"] <= end_day) & (df["End"] >= start_day)]
+    df = df.dropna(subset=["End"])
 
     if df.empty:
-        return False
-
-    rooms = df["room"].unique()
+        return None
 
     fig, ax = plt.subplots(figsize=(12, 6))
 
+    rooms = df["Room"].unique()
+
     for i, room in enumerate(rooms):
-        room_data = df[df["room"] == room]
+        room_data = df[df["Room"] == room]
 
         for _, row in room_data.iterrows():
 
-            start = max(row["start_time"], start_day)
-            end = min(row["end_time"], end_day)
+            real_start = max(row["Start"], start_day)
+            real_end = min(row["End"], end_day)
 
             start_hour = (
-                start.hour
-                + start.minute / 60
-                + start.second / 3600
+                real_start.hour +
+                real_start.minute / 60 +
+                real_start.second / 3600
             )
 
-            duration_hours = (end - start).total_seconds() / 3600
+            duration_hours = (real_end - real_start).total_seconds() / 3600
 
             ax.barh(
                 y=i,
                 width=duration_hours,
                 left=start_hour,
-                height=0.4,
+                height=0.4
             )
 
     ax.set_yticks(range(len(rooms)))
@@ -71,44 +79,48 @@ def draw_timeline(df, target_date, filename):
     ax.set_title(f"Timeline {target_date.strftime('%d/%m/%Y')}")
 
     plt.tight_layout()
-    plt.savefig(filename)
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    plt.savefig(tmp.name)
     plt.close()
 
-    return True
+    return tmp.name
 
 
 # ================= COMMANDS =================
 
 async def timeline_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    df = load_sheet()
+    chat_id = update.effective_chat.id
+    df = load_data()
     today = datetime.now().date()
 
-    ok = draw_timeline(df, today, "today.png")
+    img = draw_timeline(df, chat_id, today)
 
-    if not ok:
+    if not img:
         await update.message.reply_text("Hôm nay không có dữ liệu.")
         return
 
-    await update.message.reply_photo(photo=open("today.png", "rb"))
+    await update.message.reply_photo(photo=open(img, "rb"))
 
 
 async def timeline_yesterday(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    df = load_sheet()
+    chat_id = update.effective_chat.id
+    df = load_data()
     yesterday = (datetime.now() - timedelta(days=1)).date()
 
-    ok = draw_timeline(df, yesterday, "yesterday.png")
+    img = draw_timeline(df, chat_id, yesterday)
 
-    if not ok:
+    if not img:
         await update.message.reply_text("Hôm qua không có dữ liệu.")
         return
 
-    await update.message.reply_photo(photo=open("yesterday.png", "rb"))
+    await update.message.reply_photo(photo=open(img, "rb"))
 
 
-# ================= RUN BOT =================
-
+# ================= MAIN =================
 app = ApplicationBuilder().token(TOKEN).build()
 
+app.add_handler(CommandHandler("getid", get_id))
 app.add_handler(CommandHandler("timeline_today", timeline_today))
 app.add_handler(CommandHandler("timeline_yesterday", timeline_yesterday))
 
