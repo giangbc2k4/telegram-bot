@@ -1,59 +1,96 @@
-# telegram-bot
+# Telegram Chat ID Bot
 
-Small Telegram bot for getting the current chat ID. This is useful when configuring notifications, reports, or automation workflows that need a Telegram `chat_id`.
+Bot Telegram nhỏ viết bằng Python, dùng để trả về `chat_id` của cuộc trò chuyện hiện tại. ID này thường cần khi cấu hình hệ thống gửi cảnh báo, báo cáo hoặc thông báo tự động qua Telegram.
 
-## Features
+## Chức năng
 
-- `/getid` command.
-- Replies with the current Telegram chat ID.
-- Dockerfile included for container deployment.
+- Nhận lệnh `/getid`.
+- Trả về ID của private chat, group hoặc channel nơi bot nhận message.
+- Đọc bot token từ biến môi trường thay vì hard-code.
+- Có `Dockerfile` và cấu hình `fly.toml` để chạy dạng container.
 
-## Tech Stack
+## Cấu trúc
 
-- Python
-- python-telegram-bot
-- Docker
+```text
+bot.py            # Entry point và command handler
+requirements.txt  # Dependency Python
+Dockerfile        # Image chạy bot
+fly.toml          # Cấu hình Fly.io
+```
 
-## Getting Started
+## Tạo bot
 
-Install dependencies:
+1. Mở cuộc trò chuyện với **@BotFather**.
+2. Chạy `/newbot` và làm theo hướng dẫn.
+3. Lưu token ở nơi an toàn; không commit token lên GitHub.
+4. Nếu dùng trong group, thêm bot vào group và cấp quyền tối thiểu cần thiết.
+
+## Chạy cục bộ
+
+Yêu cầu Python 3.10+:
 
 ```bash
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# macOS/Linux
+source .venv/bin/activate
+
 pip install -r requirements.txt
 ```
 
-Set your bot token:
+Thiết lập token:
 
-```bash
-set BOT_TOKEN=your_telegram_bot_token
-```
-
-Run the bot:
-
-```bash
+```powershell
+$env:BOT_TOKEN="your_bot_token"
 python bot.py
 ```
 
-## Bot Command
+Sau khi bot online, gửi `/getid` trong cuộc trò chuyện cần lấy ID.
 
-```text
-/getid
-```
-
-The bot replies with:
-
-```text
-Chat ID cua ban la: <chat_id>
-```
-
-## Docker
+## Chạy bằng Docker
 
 ```bash
-docker build -t telegram-bot .
-docker run -e BOT_TOKEN=your_telegram_bot_token telegram-bot
+docker build -t telegram-chat-id-bot .
+docker run --rm -e BOT_TOKEN=your_bot_token telegram-chat-id-bot
 ```
 
-## Notes
+## Triển khai Fly.io
 
-The current bot only uses `python-telegram-bot`. If the bot remains focused on `/getid`, dependencies such as `pandas`, `matplotlib`, and `openpyxl` can be removed.
+1. Cài và đăng nhập Fly CLI.
+2. Kiểm tra tên app/region trong `fly.toml`.
+3. Lưu token bằng secret:
 
+```bash
+fly secrets set BOT_TOKEN=your_bot_token
+fly deploy
+fly logs
+```
+
+Không đặt token trực tiếp trong `fly.toml`.
+
+## Cách hiểu `chat_id`
+
+- Private chat thường là số dương.
+- Group/supergroup thường có ID âm.
+- ID không phải username và không nên ép sang kiểu số 32-bit.
+- Bot chỉ có thể nhận lệnh ở nơi nó được thêm và được phép đọc message phù hợp.
+
+## Xử lý sự cố
+
+- Bot không phản hồi: kiểm tra token, log và xem đã chạy đúng process chưa.
+- Group không phản hồi: thêm bot, thử lệnh `/getid@TenBot`, kiểm tra privacy mode.
+- Deploy dừng: kiểm tra health/restart policy và biến `BOT_TOKEN`.
+- `Conflict: terminated by other getUpdates`: đang có hai instance polling cùng token; chỉ giữ một instance.
+
+## Bảo mật và tối giản dependency
+
+Token Telegram cho phép điều khiển bot; nếu bị lộ hãy revoke ngay tại BotFather. Repository chỉ cần thư viện Telegram và dependency trực tiếp của nó. Nếu `requirements.txt` còn các gói phân tích dữ liệu/biểu đồ không được `bot.py` import, nên xóa để image nhỏ hơn và giảm bề mặt lỗ hổng.
+
+## Hướng phát triển
+
+- Thêm `/start` và hướng dẫn sử dụng.
+- Giới hạn người dùng nếu bot chỉ phục vụ nội bộ.
+- Thêm logging có cấu trúc và graceful shutdown.
+- Pin version dependency và quét bảo mật container.
+- Thêm test cho command handler.
